@@ -10,6 +10,7 @@ import androidx.core.app.NotificationCompat
 import com.karthi.voicefinder.AlertActivity
 import com.karthi.voicefinder.MainActivity
 import com.karthi.voicefinder.R
+import com.karthi.voicefinder.power.PauseReason
 
 object Notifications {
     const val LISTENING_ID = 1
@@ -39,15 +40,28 @@ object Notifications {
         )
     }
 
-    fun listening(context: Context): Notification {
+    fun listening(context: Context, paused: PauseReason? = null): Notification {
         val stop = PendingIntent.getService(
             context, 0, FinderService.stopIntent(context), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return NotificationCompat.Builder(context, CHANNEL_LISTENING)
             .setSmallIcon(R.drawable.ic_finder)
-            .setContentTitle(context.getString(R.string.notif_listening_title))
-            .setContentText(context.getString(R.string.notif_listening_text))
+            .setContentTitle(
+                when (paused) {
+                    PauseReason.LOW_BATTERY -> context.getString(R.string.notif_paused_battery_title)
+                    PauseReason.CHARGING -> context.getString(R.string.notif_paused_charging_title)
+                    null -> context.getString(R.string.notif_listening_title)
+                },
+            )
+            .setContentText(
+                when (paused) {
+                    PauseReason.LOW_BATTERY -> context.getString(R.string.notif_paused_battery_text)
+                    PauseReason.CHARGING -> context.getString(R.string.notif_paused_charging_text)
+                    null -> context.getString(R.string.notif_listening_text)
+                },
+            )
             .setContentIntent(openApp(context))
+            .setOnlyAlertOnce(true)
             .addAction(0, context.getString(R.string.notif_stop), stop)
             .setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
@@ -95,10 +109,12 @@ object Notifications {
             Intent(context, AlertActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val settings = FinderSettings(context)
         return NotificationCompat.Builder(context, CHANNEL_FOUND)
             .setSmallIcon(R.drawable.ic_finder)
-            .setContentTitle(context.getString(R.string.notif_found_title))
-            .setContentText(context.getString(R.string.notif_found_text))
+            .setContentTitle(settings.bannerTitle)
+            .setContentText(settings.bannerMessage)
+            .setSubText(context.getString(R.string.notif_found_text))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

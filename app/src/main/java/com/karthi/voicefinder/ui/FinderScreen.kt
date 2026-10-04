@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.BatterySaver
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -39,6 +42,7 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.RecordVoiceOver
@@ -62,10 +66,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,13 +83,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.karthi.voicefinder.power.PauseReason
+import com.karthi.voicefinder.power.PowerRules
 import com.karthi.voicefinder.service.FinderSettings
 import com.karthi.voicefinder.voice.MatchResult
+import kotlin.math.roundToInt
 import com.karthi.voicefinder.voice.VoiceProfile
 
 data class ReliabilityState(
@@ -106,6 +116,9 @@ data class FinderUiState(
     val soundName: String?,
     val repeatCount: Int,
     val previewing: Boolean,
+    val pauseReason: PauseReason?,
+    val powerRules: PowerRules,
+    val banner: BannerState,
 )
 
 class FinderActions(
@@ -121,6 +134,13 @@ class FinderActions(
     val resetSound: () -> Unit,
     val togglePreview: () -> Unit,
     val changeRepeat: (Int) -> Unit,
+    val setPauseOnLowBattery: (Boolean) -> Unit,
+    val setLowBatteryPercent: (Int) -> Unit,
+    val setPauseWhileCharging: (Boolean) -> Unit,
+    val setBannerTitle: (String) -> Unit,
+    val setBannerMessage: (String) -> Unit,
+    val setBannerTheme: (Int) -> Unit,
+    val resetBanner: () -> Unit,
     val openBatterySettings: () -> Unit,
     val openDndSettings: () -> Unit,
     val openFullScreenSettings: () -> Unit,
@@ -148,6 +168,8 @@ fun FinderScreen(phrase: String, state: FinderUiState, actions: FinderActions, s
             item { SetupChecklist(state, actions) }
             item { VoiceCard(phrase, state, actions) }
             item { SoundCard(state, actions) }
+            item { BannerCard(state.banner, actions) }
+            item { BatteryCard(state.powerRules, actions) }
             item { DetectionCard(state, actions) }
             item { AboutCard() }
         }
@@ -157,8 +179,12 @@ fun FinderScreen(phrase: String, state: FinderUiState, actions: FinderActions, s
 @Composable
 private fun StatusHero(phrase: String, state: FinderUiState, actions: FinderActions) {
     val ready = state.enrollment.profileSaved && state.reliability.micGranted
-    val active = state.listening && !state.micBlocked
+    val paused = state.listening && state.pauseReason != null
+    val active = state.listening && !state.micBlocked && !paused
     val (title, subtitle) = when {
+        paused && state.pauseReason == PauseReason.LOW_BATTERY ->
+            "Paused: battery low" to "Resumes by itself above ${state.powerRules.lowBatteryPercent + 3}% or when plugged in"
+        paused -> "Paused while charging" to "Resumes by itself when you unplug"
         state.micBlocked -> "Android muted the mic" to "Tap the mic to resume listening"
         state.listening -> "Listening for your voice" to "Say “$phrase”"
         !state.enrollment.profileSaved -> "Set up your voice" to "Record your wake phrase below"
@@ -182,8 +208,8 @@ private fun StatusHero(phrase: String, state: FinderUiState, actions: FinderActi
             )
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
             Text(subtitle, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-            if (active) {
-                LevelMeter(state.micLevel, "Live mic level: speak to see it move")
+            if (state.listening && state.enrollment.profileSaved && !state.micBlocked) {
+                if (active) LevelMeter(state.micLevel, "Live mic level: speak to see it move")
                 OutlinedButton(onClick = actions.simulateTrigger) {
                     Icon(Icons.Rounded.NotificationsActive, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -371,6 +397,118 @@ private fun SoundCard(state: FinderUiState, actions: FinderActions) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun BannerCard(banner: BannerState, actions: FinderActions) {
+    SectionCard(Icons.Rounded.Palette, "Found screen banner") {
+        val theme = BannerThemes.get(banner.theme)
+        // Live preview of what appears over the lock screen.
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(theme.brush).padding(20.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    banner.title.ifBlank { FinderSettings.DEFAULT_BANNER_TITLE },
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+                Text(
+                    banner.message.ifBlank { FinderSettings.DEFAULT_BANNER_MESSAGE },
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Box(
+                    Modifier.padding(top = 6.dp).clip(RoundedCornerShape(50)).background(Color.White)
+                        .padding(horizontal = 20.dp, vertical = 6.dp),
+                ) { Text("STOP", color = theme.top, fontWeight = FontWeight.Black) }
+            }
+        }
+        OutlinedTextField(
+            value = banner.title,
+            onValueChange = actions.setBannerTitle,
+            label = { Text("Title") },
+            singleLine = true,
+            supportingText = { Text("${banner.title.length}/${FinderSettings.MAX_TITLE_LENGTH}") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = banner.message,
+            onValueChange = actions.setBannerMessage,
+            label = { Text("Message") },
+            maxLines = 3,
+            supportingText = { Text("${banner.message.length}/${FinderSettings.MAX_MESSAGE_LENGTH}") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text("Colour", style = MaterialTheme.typography.labelLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            BannerThemes.all.forEachIndexed { index, option ->
+                val selected = index == banner.theme
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).background(option.brush)
+                        .border(if (selected) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        .clickable { actions.setBannerTheme(index) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (selected) {
+                        Icon(Icons.Rounded.Check, contentDescription = option.name, tint = Color.White)
+                    }
+                }
+            }
+        }
+        TextButton(onClick = actions.resetBanner) { Text("Reset to default") }
+    }
+}
+
+@Composable
+private fun BatteryCard(rules: PowerRules, actions: FinderActions) {
+    SectionCard(Icons.Rounded.BatterySaver, "Battery saver") {
+        SwitchRow(
+            title = "Pause when battery is low",
+            subtitle = "At or below ${rules.lowBatteryPercent}%. Resumes above ${rules.lowBatteryPercent + 3}% or when plugged in.",
+            checked = rules.pauseOnLowBattery,
+            onChange = actions.setPauseOnLowBattery,
+        )
+        AnimatedVisibility(rules.pauseOnLowBattery) {
+            Column {
+                Text("Pause at ${rules.lowBatteryPercent}%", style = MaterialTheme.typography.labelLarge)
+                Slider(
+                    value = rules.lowBatteryPercent.toFloat(),
+                    onValueChange = { actions.setLowBatteryPercent(it.roundToInt()) },
+                    valueRange = FinderSettings.MIN_LOW_PERCENT.toFloat()..FinderSettings.MAX_LOW_PERCENT.toFloat(),
+                    steps = (FinderSettings.MAX_LOW_PERCENT - FinderSettings.MIN_LOW_PERCENT) / 5 - 1,
+                )
+            }
+        }
+        HorizontalDivider()
+        SwitchRow(
+            title = "Pause while charging",
+            subtitle = "Resumes when you unplug.",
+            checked = rules.pauseWhileCharging,
+            onChange = actions.setPauseWhileCharging,
+        )
+        Text(
+            "While paused the mic is fully off, so the phone can't be found by voice.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

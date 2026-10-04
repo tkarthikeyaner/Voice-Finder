@@ -3,8 +3,12 @@ package com.karthi.voicefinder.service
 import android.Manifest
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.SharedPreferences
+import android.os.BatteryManager
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
@@ -16,6 +20,8 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.karthi.voicefinder.audio.AlertPlayer
 import com.karthi.voicefinder.audio.MicrophoneSource
+import com.karthi.voicefinder.power.PauseReason
+import com.karthi.voicefinder.power.PowerPolicy
 import com.karthi.voicefinder.voice.AudioLevel
 import com.karthi.voicefinder.voice.FeatureExtractor
 import com.karthi.voicefinder.voice.MatchResult
@@ -54,6 +60,22 @@ class FinderService : Service() {
     /** Ignore anything heard until this time (our own playback, or just after a trigger). */
     @Volatile private var mutedUntil = 0L
 
+    /** Set once a voice profile is loaded; null means the service isn't set up to listen. */
+    private var matcher: WakePhraseMatcher? = null
+    private var batteryPercent = -1
+    private var pluggedIn = false
+
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            readBattery(intent)
+            applyPowerRules()
+        }
+    }
+
+    private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key in FinderSettings.POWER_KEYS) applyPowerRules()
+    }
+
     override fun onCreate() {
         super.onCreate()
         settings = FinderSettings(this)
@@ -62,6 +84,11 @@ class FinderService : Service() {
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VoiceFinder::Listening")
             .apply { setReferenceCounted(false) }
+        // Battery changes are a sticky broadcast: registering also returns the current state.
+        ContextCompat.registerReceiver(
+            this, batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED), ContextCompat.RECEIVER_NOT_EXPORTED,
+        )?.let(::readBattery)
+        settings.registerListener(settingsListener)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -74,10 +101,10 @@ class FinderService : Service() {
             ACTION_STOP_ALERT -> {
                 alertPlayer.stop()
                 // Started only to deliver this (process had died): don't linger as a non-foreground service.
-                if (listenJob == null) stopSelf()
-                return if (listenJob == null) START_NOT_STICKY else START_STICKY
+                if (matcher == null) stopSelf()
+                return if (matcher == null) START_NOT_STICKY else START_STICKY
             }
-            ACTION_TEST_TRIGGER -> if (listenJob != null) {
+            ACTION_TEST_TRIGGER -> if (matcher != null) {
                 onWakePhrase()
                 return START_STICKY
             }
@@ -99,13 +126,48 @@ class FinderService : Service() {
             return START_NOT_STICKY
         }
         settings.listeningEnabled = true
-        if (listenJob?.isActive != true) {
-            // Audio analysis runs off the main thread; only the alert hops back to it.
-            listenJob = scope.launch(Dispatchers.Default) { listenLoop(WakePhraseMatcher(profile)) }
-        }
+        matcher = WakePhraseMatcher(profile)
         _running.value = true
+        applyPowerRules()
+        startListening()
         // Sticky: if the system kills us under memory pressure it recreates the service with a null intent.
         return START_STICKY
+    }
+
+    private fun startListening() {
+        val m = matcher ?: return
+        if (_pauseReason.value != null || listenJob?.isActive == true) return
+        // Audio analysis runs off the main thread; only the alert hops back to it.
+        listenJob = scope.launch(Dispatchers.Default) { listenLoop(m) }
+    }
+
+    private fun readBattery(intent: Intent) {
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        batteryPercent = if (level >= 0 && scale > 0) level * 100 / scale else -1
+        pluggedIn = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+    }
+
+    /** Pauses or resumes listening to match the battery rules; the mic and wake lock are released while paused. */
+    @MainThread
+    private fun applyPowerRules() {
+        if (matcher == null) return
+        val current = _pauseReason.value
+        val next = PowerPolicy.pauseReason(batteryPercent, pluggedIn, settings.powerRules, current)
+        if (next == current) return
+        _pauseReason.value = next
+        notificationManager.notify(Notifications.LISTENING_ID, Notifications.listening(this, next))
+        if (next != null) {
+            Log.i(TAG, "Pausing listening: $next at $batteryPercent%")
+            listenJob?.cancel()
+            listenJob = null
+            _micLevel.value = 0f
+            _micBlocked.value = false
+            if (wakeLock.isHeld) wakeLock.release()
+        } else {
+            Log.i(TAG, "Resuming listening at $batteryPercent%")
+            startListening()
+        }
     }
 
     private fun goForeground(): Boolean {
@@ -116,7 +178,8 @@ class FinderService : Service() {
         }
         return try {
             ServiceCompat.startForeground(
-                this, Notifications.LISTENING_ID, Notifications.listening(this), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                this, Notifications.LISTENING_ID, Notifications.listening(this, _pauseReason.value),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
             )
             true
         } catch (e: Exception) {
@@ -204,6 +267,10 @@ class FinderService : Service() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(batteryReceiver)
+        settings.unregisterListener(settingsListener)
+        matcher = null
+        _pauseReason.value = null
         _running.value = false
         _micBlocked.value = false
         _micLevel.value = 0f
@@ -242,6 +309,10 @@ class FinderService : Service() {
         private val _micLevel = MutableStateFlow(0f)
         /** Live input level 0..1, so the user can see the listener really hears the room. */
         val micLevel: StateFlow<Float> = _micLevel.asStateFlow()
+
+        private val _pauseReason = MutableStateFlow<PauseReason?>(null)
+        /** Why listening is paused to save battery, or null while it listens. */
+        val pauseReason: StateFlow<PauseReason?> = _pauseReason.asStateFlow()
 
         private val _alerting = MutableStateFlow(false)
         /** True while the "found" sound is playing. */

@@ -27,6 +27,8 @@ Battery: the always-on part is just an RMS level per 10 ms frame. MFCC + DTW onl
 - When triggered: full volume even on silent/DND, plays the response 1–10 times (default 3), then stops by itself.
 - Full-screen **STOP** screen over the lock screen, plus a STOP action in the notification.
 - Custom response sound: pick any audio file (≤ 20 MB, ≤ 5 min), preview it, or revert to the bundled clip.
+- Battery saver: optionally pause at a low-battery level (10–50%) and/or while charging; resumes by itself.
+- Customisable "found" banner: title, message and colour theme, with a live preview.
 - Material You UI with a live mic level, setup checklist, live match scores and a "Test the alert" button.
 
 ## Folder structure

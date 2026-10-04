@@ -58,6 +58,13 @@ class MainActivity : ComponentActivity() {
             resetSound = viewModel::resetSound,
             togglePreview = viewModel::togglePreview,
             changeRepeat = viewModel::changeRepeat,
+            setPauseOnLowBattery = viewModel::setPauseOnLowBattery,
+            setLowBatteryPercent = viewModel::setLowBatteryPercent,
+            setPauseWhileCharging = viewModel::setPauseWhileCharging,
+            setBannerTitle = viewModel::setBannerTitle,
+            setBannerMessage = viewModel::setBannerMessage,
+            setBannerTheme = viewModel::setBannerTheme,
+            resetBanner = viewModel::resetBanner,
             openBatterySettings = { launch(Reliability.batteryExemptionIntent(this)) },
             openDndSettings = { launch(Reliability.dndAccessIntent()) },
             openFullScreenSettings = { launch(Reliability.fullScreenIntentSettings(this)) },
@@ -77,6 +84,9 @@ class MainActivity : ComponentActivity() {
                 val soundName by viewModel.soundName.collectAsStateWithLifecycle()
                 val repeatCount by viewModel.repeatCount.collectAsStateWithLifecycle()
                 val previewing by viewModel.previewing.collectAsStateWithLifecycle()
+                val pauseReason by viewModel.pauseReason.collectAsStateWithLifecycle()
+                val powerRules by viewModel.powerRules.collectAsStateWithLifecycle()
+                val banner by viewModel.banner.collectAsStateWithLifecycle()
                 FinderScreen(
                     phrase = getString(R.string.wake_phrase),
                     state = FinderUiState(
@@ -91,6 +101,9 @@ class MainActivity : ComponentActivity() {
                         soundName = soundName,
                         repeatCount = repeatCount,
                         previewing = previewing,
+                        pauseReason = pauseReason,
+                        powerRules = powerRules,
+                        banner = banner,
                     ),
                     actions = actions,
                     snackbar = snackbar,

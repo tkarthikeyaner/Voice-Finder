@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.karthi.voicefinder.audio.AlertPlayer
 import com.karthi.voicefinder.audio.MicrophoneSource
 import com.karthi.voicefinder.audio.ResponseSound
+import com.karthi.voicefinder.power.PowerRules
 import com.karthi.voicefinder.service.FinderService
 import com.karthi.voicefinder.service.FinderSettings
 import com.karthi.voicefinder.voice.AudioLevel
@@ -35,6 +36,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+
+data class BannerState(val title: String, val message: String, val theme: Int)
 
 data class EnrollmentState(
     val samples: Int = 0,
@@ -68,6 +71,12 @@ class FinderViewModel(app: Application) : AndroidViewModel(app) {
     private val _soundName = MutableStateFlow(sound.customName)
     val soundName: StateFlow<String?> = _soundName.asStateFlow()
 
+    private val _powerRules = MutableStateFlow(settings.powerRules)
+    val powerRules: StateFlow<PowerRules> = _powerRules.asStateFlow()
+
+    private val _banner = MutableStateFlow(currentBanner())
+    val banner: StateFlow<BannerState> = _banner.asStateFlow()
+
     private val _previewing = MutableStateFlow(false)
     val previewing: StateFlow<Boolean> = _previewing.asStateFlow()
 
@@ -79,6 +88,7 @@ class FinderViewModel(app: Application) : AndroidViewModel(app) {
     val lastMatch = FinderService.lastMatch
     val micBlocked = FinderService.micBlocked
     val micLevel = FinderService.micLevel
+    val pauseReason = FinderService.pauseReason
 
     /** Caller must have verified RECORD_AUDIO is granted. */
     @SuppressLint("MissingPermission")
@@ -163,6 +173,46 @@ class FinderViewModel(app: Application) : AndroidViewModel(app) {
         settings.repeatCount = settings.repeatCount + delta
         _repeatCount.value = settings.repeatCount
     }
+
+    fun setPauseOnLowBattery(on: Boolean) {
+        settings.pauseOnLowBattery = on
+        _powerRules.value = settings.powerRules
+    }
+
+    fun setLowBatteryPercent(percent: Int) {
+        settings.lowBatteryPercent = percent
+        _powerRules.value = settings.powerRules
+    }
+
+    fun setPauseWhileCharging(on: Boolean) {
+        settings.pauseWhileCharging = on
+        _powerRules.value = settings.powerRules
+    }
+
+    // The fields show exactly what was typed (even empty); the stored value falls back to the default when blank.
+    fun setBannerTitle(text: String) {
+        val clipped = text.take(FinderSettings.MAX_TITLE_LENGTH)
+        settings.bannerTitle = clipped
+        _banner.update { it.copy(title = clipped) }
+    }
+
+    fun setBannerMessage(text: String) {
+        val clipped = text.take(FinderSettings.MAX_MESSAGE_LENGTH)
+        settings.bannerMessage = clipped
+        _banner.update { it.copy(message = clipped) }
+    }
+
+    fun setBannerTheme(index: Int) {
+        settings.bannerTheme = index
+        _banner.update { it.copy(theme = index) }
+    }
+
+    fun resetBanner() {
+        settings.resetBanner()
+        _banner.value = currentBanner()
+    }
+
+    private fun currentBanner() = BannerState(settings.bannerTitle, settings.bannerMessage, settings.bannerTheme)
 
     fun setListening(on: Boolean) {
         if (on) FinderService.start(getApplication()) else FinderService.stop(getApplication())

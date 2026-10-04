@@ -21,13 +21,19 @@ class AlertActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         showOverLockScreen()
         enableEdgeToEdge()
-        val repeatCount = FinderSettings(this).repeatCount
+        val settings = FinderSettings(this)
         setContent {
             VoiceFinderTheme {
                 val alerting by FinderService.alerting.collectAsStateWithLifecycle()
                 // Close by itself once the sound has finished its plays.
                 LaunchedEffect(alerting) { if (!alerting) finish() }
-                AlertScreen(repeatCount = repeatCount, onStop = ::stopAlert)
+                AlertScreen(
+                    repeatCount = settings.repeatCount,
+                    title = settings.bannerTitle,
+                    message = settings.bannerMessage,
+                    themeIndex = settings.bannerTheme,
+                    onStop = ::stopAlert,
+                )
             }
         }
     }

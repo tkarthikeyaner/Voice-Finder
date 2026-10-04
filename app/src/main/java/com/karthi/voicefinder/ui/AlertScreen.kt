@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -36,7 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun AlertScreen(repeatCount: Int, onStop: () -> Unit) {
+fun AlertScreen(repeatCount: Int, title: String, message: String, themeIndex: Int, onStop: () -> Unit) {
+    val theme = BannerThemes.get(themeIndex)
     val pulse by rememberInfiniteTransition(label = "alert").animateFloat(
         initialValue = 1f,
         targetValue = 1.18f,
@@ -46,16 +46,16 @@ fun AlertScreen(repeatCount: Int, onStop: () -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFFB71C1C), Color(0xFF4A0072))))
+            .background(theme.brush)
             .systemBarsPadding()
             .padding(24.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("Here I am!", color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Bold)
+            Text(title, color = Color.White, fontSize = 40.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, lineHeight = 46.sp)
             Spacer(Modifier.height(8.dp))
             Text(
-                "நீங்க எங்க தூக்கி போட்டீங்களோ அங்கதான்யா இருக்கேன்",
+                message,
                 color = Color.White.copy(alpha = 0.85f),
                 textAlign = TextAlign.Center,
             )
@@ -66,7 +66,7 @@ fun AlertScreen(repeatCount: Int, onStop: () -> Unit) {
                     onClick = onStop,
                     modifier = Modifier.size(200.dp),
                     shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFFB71C1C)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = theme.top),
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Rounded.Stop, contentDescription = null, modifier = Modifier.size(64.dp))
