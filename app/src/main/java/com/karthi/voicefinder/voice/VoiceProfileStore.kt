@@ -18,7 +18,7 @@ class VoiceProfileStore(context: Context) {
         return try {
             val json = JSONObject(file.readText())
             if (json.optInt("version") != VERSION) {
-                // Older profiles lack the start/end calibration that stops partial phrases triggering.
+                // Older profiles were recorded with different features and looser limits.
                 Log.i(TAG, "Voice profile is from an older version; re-enrollment needed")
                 file.delete()
                 return null
@@ -29,6 +29,8 @@ class VoiceProfileStore(context: Context) {
                 phraseThreshold = json.getDouble("phraseThreshold").toFloat(),
                 partThreshold = json.getDouble("partThreshold").toFloat(),
                 voiceThreshold = json.getDouble("voiceThreshold").toFloat(),
+                negatives = json.optJSONArray("negatives")?.let { arr -> List(arr.length()) { arr.getJSONArray(it).toMatrix() } }
+                    ?: emptyList(),
             )
         } catch (e: Exception) {
             // A corrupt profile must not crash the service; the user simply re-enrolls.
@@ -47,6 +49,7 @@ class VoiceProfileStore(context: Context) {
             .put("phraseThreshold", profile.phraseThreshold.toDouble())
             .put("partThreshold", profile.partThreshold.toDouble())
             .put("voiceThreshold", profile.voiceThreshold.toDouble())
+            .put("negatives", JSONArray().apply { profile.negatives.forEach { put(it.toJson()) } })
         val tmp = File(file.parentFile, "${file.name}.tmp")
         tmp.writeText(json.toString())
         if (!tmp.renameTo(file)) throw IOException("Could not replace ${file.name}")
@@ -63,6 +66,6 @@ class VoiceProfileStore(context: Context) {
 
     private companion object {
         const val TAG = "VoiceProfileStore"
-        const val VERSION = 2
+        const val VERSION = 3
     }
 }

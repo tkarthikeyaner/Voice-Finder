@@ -49,6 +49,8 @@ class MainActivity : ComponentActivity() {
             grantPermissions = ::requestPermissions,
             recordSample = { if (reliability.micGranted) viewModel.recordSample() else requestPermissions() },
             saveProfile = viewModel::saveProfile,
+            recordWrongPhrase = { if (reliability.micGranted) viewModel.recordWrongPhrase() else requestPermissions() },
+            clearWrongPhrases = viewModel::clearWrongPhrases,
             resetProfile = viewModel::resetEnrollment,
             setSensitivity = viewModel::setSensitivity,
             setListening = viewModel::setListening,
@@ -116,6 +118,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Settings screens return here, so re-check what the user changed.
         refreshReliability()
+        viewModel.refresh()
         // Opening the app is a user action, so it also restores a microphone Android muted in the background.
         if (FinderService.micBlocked.value) viewModel.resumeListening()
     }

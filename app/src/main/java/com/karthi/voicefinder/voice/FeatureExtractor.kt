@@ -6,8 +6,10 @@ import kotlin.math.sqrt
 
 /**
  * One spoken segment reduced to what matching needs:
- * [frames] — mean-normalised MFCCs of the speech only (silence trimmed off both ends), compared with DTW
- * to recognise *what* was said; its length is the spoken duration in 10 ms steps;
+ * [frames] — per frame, mean- and variance-normalised MFCCs plus their deltas (how the sound is changing),
+ * for the speech only (silence trimmed off both ends). Compared with DTW to recognise *what* was said; its
+ * length is the spoken duration in 10 ms steps. Normalising the variance stops the first coefficients, which
+ * mostly carry overall tone and loudness, from drowning out the ones that tell words apart;
  * [voiceprint] — per-coefficient mean and spread of the raw MFCCs, a coarse fingerprint of *who* said it.
  */
 class Utterance(val frames: Array<FloatArray>, val voiceprint: FloatArray)
@@ -29,9 +31,27 @@ class FeatureExtractor(private val mfcc: Mfcc = Mfcc()) {
         }
         for (k in 0 until dims) std[k] = sqrt(std[k] / raw.size)
 
-        // Cepstral mean normalisation removes the microphone/room colouring before DTW.
-        val normalised = Array(raw.size) { f -> FloatArray(dims) { k -> raw[f][k] - mean[k] } }
-        return Utterance(normalised, mean + std)
+        // Mean normalisation removes the microphone/room colouring; variance normalisation equalises coefficients.
+        val normalised = Array(raw.size) { f -> FloatArray(dims) { k -> (raw[f][k] - mean[k]) / max(std[k], MIN_STD) } }
+        return Utterance(withDeltas(normalised), mean + std)
+    }
+
+    /** Appends regression deltas over ±[DELTA_WINDOW] frames: the direction each sound is moving in. */
+    private fun withDeltas(c: Array<FloatArray>): Array<FloatArray> {
+        val n = c.size
+        val dims = c[0].size
+        return Array(n) { t ->
+            FloatArray(dims * 2) { k ->
+                if (k < dims) {
+                    c[t][k]
+                } else {
+                    val j = k - dims
+                    var acc = 0f
+                    for (w in 1..DELTA_WINDOW) acc += w * (c[minOf(n - 1, t + w)][j] - c[maxOf(0, t - w)][j])
+                    acc / DELTA_NORM
+                }
+            }
+        }
     }
 
     /**
@@ -56,5 +76,8 @@ class FeatureExtractor(private val mfcc: Mfcc = Mfcc()) {
 
     private companion object {
         const val TRIM_DB = 30f
+        const val MIN_STD = 0.3f
+        const val DELTA_WINDOW = 2
+        const val DELTA_NORM = 10f // 2 × (1² + 2²)
     }
 }

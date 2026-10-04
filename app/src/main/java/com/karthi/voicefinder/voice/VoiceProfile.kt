@@ -1,14 +1,18 @@
 package com.karthi.voicefinder.voice
 
 import kotlin.math.max
-import kotlin.math.roundToInt
+import kotlin.math.min
 
 /**
- * The enrolled wake phrase: several recordings of the owner saying it, plus thresholds calibrated
- * from how much those recordings differ from each other.
+ * The enrolled wake phrase: several recordings of the owner saying it, plus thresholds calibrated from them.
  *
- * Besides the whole phrase, the opening and closing parts are calibrated separately ([partThreshold]):
- * a fragment like "எங்க இருக்க" can resemble the whole phrase on average, but its start can't match "ஏய்".
+ * Thresholds are set from both sides: how much the owner's own recordings differ (they must all pass), and
+ * how close "same voice, wrong words" comes. The latter is simulated from the recordings themselves
+ * ([impostors]: the same sounds in a different order) and the limit is kept well short of it, so another
+ * sentence in the same voice and tone doesn't fit inside the tolerance.
+ *
+ * The phrase is also checked in thirds ([partThreshold]), so each word has to match, not just the average.
+ * [negatives] are phrases the user marked as "should not trigger".
  */
 class VoiceProfile(
     val templates: List<Array<FloatArray>>,
@@ -16,6 +20,7 @@ class VoiceProfile(
     val phraseThreshold: Float,
     val partThreshold: Float,
     val voiceThreshold: Float,
+    val negatives: List<Array<FloatArray>> = emptyList(),
 ) {
     init {
         require(templates.size >= MIN_SAMPLES) { "Need at least $MIN_SAMPLES samples" }
@@ -24,9 +29,17 @@ class VoiceProfile(
     /** Median spoken length of the enrolled phrase, in 10 ms frames. */
     val typicalFrames: Int = templates.map { it.size }.sorted()[templates.size / 2]
 
+    fun withNegative(frames: Array<FloatArray>) = copy(negatives = (negatives + listOf(frames)).takeLast(MAX_NEGATIVES))
+
+    fun withoutNegatives() = copy(negatives = emptyList())
+
+    private fun copy(negatives: List<Array<FloatArray>>) =
+        VoiceProfile(templates, voiceprintCentroid, phraseThreshold, partThreshold, voiceThreshold, negatives)
+
     companion object {
         const val MIN_SAMPLES = 3
         const val MAX_SAMPLES = 6
+        const val MAX_NEGATIVES = 20
 
         /** Shortest believable full phrase; anything shorter is a single word or a cough. */
         const val MIN_PHRASE_FRAMES = 50
@@ -36,20 +49,35 @@ class VoiceProfile(
         private const val PART_MARGIN = 1.2f
         private const val VOICE_MARGIN = 1.5f
 
+        /** The limit sits at most this far from the owner's worst genuine pair towards the nearest impostor. */
+        private const val IMPOSTOR_GAP = 0.5f
+
         /** Enrollment samples must agree in length; a much shorter one is usually missing a word. */
         private const val SAMPLE_LENGTH_TOLERANCE = 0.3f
 
-        /** Fraction of the phrase compared as its opening / closing part. */
-        private const val PART_FRACTION = 0.4f
+        /** The phrase split into three consecutive parts (roughly one per word). */
+        fun parts(frames: Array<FloatArray>): List<Array<FloatArray>> {
+            val n = frames.size
+            return (0 until 3).map { i -> frames.copyOfRange(i * n / 3, maxOf(i * n / 3 + 1, (i + 1) * n / 3)) }
+        }
 
-        fun head(frames: Array<FloatArray>): Array<FloatArray> = frames.copyOfRange(0, partLength(frames))
-        fun tail(frames: Array<FloatArray>): Array<FloatArray> = frames.copyOfRange(frames.size - partLength(frames), frames.size)
-
-        /** Worse of the opening-part and closing-part DTW distances. */
+        /** Worst DTW distance among corresponding thirds. */
         fun partDistance(a: Array<FloatArray>, b: Array<FloatArray>): Float =
-            max(Dtw.distance(head(a), head(b)), Dtw.distance(tail(a), tail(b)))
+            parts(a).zip(parts(b)).maxOf { (x, y) -> Dtw.distance(x, y) }
 
-        private fun partLength(frames: Array<FloatArray>) = (frames.size * PART_FRACTION).roundToInt().coerceIn(1, frames.size)
+        /** Same voice and sounds, wrong order: what "different words, same tone" looks like to the matcher. */
+        private fun impostors(frames: Array<FloatArray>): List<Array<FloatArray>> {
+            val third = frames.size / 3
+            return listOf(rotate(frames, third), rotate(frames, 2 * third), frames.reversedArray())
+        }
+
+        private fun rotate(frames: Array<FloatArray>, by: Int) = Array(frames.size) { frames[(it + by) % frames.size] }
+
+        private fun calibrated(worstGenuine: Float, nearestImpostor: Float, margin: Float): Float {
+            // Inconsistent recordings (an impostor closer than a genuine pair): no room for slack at all.
+            if (nearestImpostor <= worstGenuine) return worstGenuine
+            return min(worstGenuine * margin, worstGenuine + (nearestImpostor - worstGenuine) * IMPOSTOR_GAP)
+        }
 
         fun build(samples: List<Utterance>): VoiceProfile {
             require(samples.size >= MIN_SAMPLES) { "Record at least $MIN_SAMPLES samples (have ${samples.size})" }
@@ -64,12 +92,23 @@ class VoiceProfile(
 
             var worstPair = 0f
             var worstPart = 0f
-            for (i in samples.indices) for (j in i + 1 until samples.size) {
-                val d = Dtw.distance(samples[i].frames, samples[j].frames)
-                val p = partDistance(samples[i].frames, samples[j].frames)
-                require(d.isFinite() && p.isFinite()) { "Samples ${i + 1} and ${j + 1} differ too much; tap Reset and record again" }
-                worstPair = max(worstPair, d)
-                worstPart = max(worstPart, p)
+            var nearestImpostor = Float.POSITIVE_INFINITY
+            var nearestImpostorPart = Float.POSITIVE_INFINITY
+            for (i in samples.indices) for (j in samples.indices) {
+                if (i == j) continue
+                val a = samples[i].frames
+                val b = samples[j].frames
+                if (i < j) {
+                    val d = Dtw.distance(a, b)
+                    val p = partDistance(a, b)
+                    require(d.isFinite() && p.isFinite()) { "Samples ${i + 1} and ${j + 1} differ too much; tap Reset and record again" }
+                    worstPair = max(worstPair, d)
+                    worstPart = max(worstPart, p)
+                }
+                for (impostor in impostors(a)) {
+                    nearestImpostor = min(nearestImpostor, Dtw.distance(impostor, b))
+                    nearestImpostorPart = min(nearestImpostorPart, partDistance(impostor, b))
+                }
             }
 
             val dims = samples.first().voiceprint.size
@@ -81,8 +120,8 @@ class VoiceProfile(
             return VoiceProfile(
                 templates = samples.map { it.frames },
                 voiceprintCentroid = centroid,
-                phraseThreshold = worstPair * PHRASE_MARGIN,
-                partThreshold = worstPart * PART_MARGIN,
+                phraseThreshold = calibrated(worstPair, nearestImpostor, PHRASE_MARGIN),
+                partThreshold = calibrated(worstPart, nearestImpostorPart, PART_MARGIN),
                 // Floor keeps three near-identical samples from producing an impossibly tight gate.
                 voiceThreshold = max(worstVoice * VOICE_MARGIN, 1f),
             )

@@ -25,6 +25,7 @@ class AlertActivity : ComponentActivity() {
         setContent {
             VoiceFinderTheme {
                 val alerting by FinderService.alerting.collectAsStateWithLifecycle()
+                val canMarkWrong by FinderService.canMarkWrong.collectAsStateWithLifecycle()
                 // Close by itself once the sound has finished its plays.
                 LaunchedEffect(alerting) { if (!alerting) finish() }
                 AlertScreen(
@@ -33,6 +34,7 @@ class AlertActivity : ComponentActivity() {
                     message = settings.bannerMessage,
                     themeIndex = settings.bannerTheme,
                     onStop = ::stopAlert,
+                    onWrongPhrase = if (canMarkWrong) ::markWrongPhrase else null,
                 )
             }
         }
@@ -40,6 +42,11 @@ class AlertActivity : ComponentActivity() {
 
     private fun stopAlert() {
         startService(FinderService.stopAlertIntent(this))
+        finish()
+    }
+
+    private fun markWrongPhrase() {
+        startService(FinderService.falseAlarmIntent(this))
         finish()
     }
 

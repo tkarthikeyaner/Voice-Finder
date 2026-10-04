@@ -19,4 +19,5 @@
     <string name="notif_paused_battery_text">Listening resumes by itself once the battery is charged a little.</string>
     <string name="notif_paused_charging_title">Paused while charging</string>
     <string name="notif_paused_charging_text">Listening resumes by itself when you unplug.</string>
+    <string name="notif_wrong_phrase">Wrong phrase</string>
 </resources>

@@ -100,7 +100,7 @@ object Notifications {
     }
 
     /** Shown while the response plays: full-screen STOP screen when locked, heads-up with STOP when in use. */
-    fun found(context: Context): Notification {
+    fun found(context: Context, allowWrongPhrase: Boolean): Notification {
         val stop = PendingIntent.getService(
             context, 4, FinderService.stopAlertIntent(context), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
@@ -110,7 +110,7 @@ object Notifications {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val settings = FinderSettings(context)
-        return NotificationCompat.Builder(context, CHANNEL_FOUND)
+        val builder = NotificationCompat.Builder(context, CHANNEL_FOUND)
             .setSmallIcon(R.drawable.ic_finder)
             .setContentTitle(settings.bannerTitle)
             .setContentText(settings.bannerMessage)
@@ -122,7 +122,13 @@ object Notifications {
             .setContentIntent(alertScreen)
             .addAction(0, context.getString(R.string.notif_stop_sound), stop)
             .setOngoing(true)
-            .build()
+        if (allowWrongPhrase) {
+            val wrong = PendingIntent.getService(
+                context, 6, FinderService.falseAlarmIntent(context), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            builder.addAction(0, context.getString(R.string.notif_wrong_phrase), wrong)
+        }
+        return builder.build()
     }
 
     private fun openApp(context: Context) = PendingIntent.getActivity(

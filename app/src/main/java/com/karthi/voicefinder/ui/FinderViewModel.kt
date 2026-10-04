@@ -42,6 +42,8 @@ data class BannerState(val title: String, val message: String, val theme: Int)
 data class EnrollmentState(
     val samples: Int = 0,
     val recording: Boolean = false,
+    /** Phrases saved as "should not trigger". */
+    val wrongPhrases: Int = 0,
     val profileSaved: Boolean = false,
     val message: String? = null,
 )
@@ -90,14 +92,75 @@ class FinderViewModel(app: Application) : AndroidViewModel(app) {
     val micLevel = FinderService.micLevel
     val pauseReason = FinderService.pauseReason
 
-    /** Caller must have verified RECORD_AUDIO is granted. */
-    @SuppressLint("MissingPermission")
     fun recordSample() {
-        if (recordJob?.isActive == true || samples.size >= VoiceProfile.MAX_SAMPLES) return
-        // The listener and the enrollment recorder can't share the microphone.
+        if (samples.size >= VoiceProfile.MAX_SAMPLES) return
+        record("Listening… say the phrase now", resumeAfter = false) { utterance ->
+            if (utterance.frames.size < VoiceProfile.MIN_PHRASE_FRAMES) {
+                "Too short. Say the whole phrase “ஏய் எங்க இருக்க?” in one go."
+            } else {
+                samples += utterance
+                "Sample ${samples.size} saved (${utterance.frames.size * 10} ms of speech)"
+            }
+        }
+    }
+
+    /** Records a sentence that must NOT trigger (e.g. "ஏய் என்ன பண்ற") and adds it to the saved profile. */
+    fun recordWrongPhrase() {
+        record("Listening… say a phrase that should NOT trigger", resumeAfter = true) { utterance ->
+            val profile = withContext(Dispatchers.IO) { store.load() }
+            if (profile == null) {
+                "Save your voice profile first."
+            } else {
+                val updated = profile.withNegative(utterance.frames)
+                withContext(Dispatchers.IO) { store.save(updated) }
+                _enrollment.update { it.copy(wrongPhrases = updated.negatives.size) }
+                "Saved. That phrase won't trigger the alert."
+            }
+        }
+    }
+
+    fun clearWrongPhrases() {
+        viewModelScope.launch {
+            val message = try {
+                val profile = withContext(Dispatchers.IO) { store.load() }
+                if (profile != null) withContext(Dispatchers.IO) { store.save(profile.withoutNegatives()) }
+                restartListenerIfRunning()
+                "Cleared the phrases that shouldn't trigger."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not clear wrong phrases", e)
+                "Couldn't clear: ${e.message}"
+            }
+            _enrollment.update { it.copy(wrongPhrases = 0, message = message) }
+        }
+    }
+
+    /** Re-reads the profile, e.g. after "Wrong phrase" was tapped on the alert screen. */
+    fun refresh() {
+        viewModelScope.launch {
+            val count = withContext(Dispatchers.IO) { store.load()?.negatives?.size ?: 0 }
+            _enrollment.update { it.copy(wrongPhrases = count) }
+        }
+    }
+
+    private fun restartListenerIfRunning() {
+        if (serviceRunning.value) {
+            FinderService.stop(getApplication())
+            FinderService.start(getApplication())
+        }
+    }
+
+    /**
+     * Captures one spoken segment and hands it to [onCaptured], whose return value is shown as the message.
+     * The listener and the recorder can't share the microphone, so listening pauses meanwhile.
+     */
+    @SuppressLint("MissingPermission")
+    private fun record(prompt: String, resumeAfter: Boolean, onCaptured: suspend (Utterance) -> String) {
+        if (recordJob?.isActive == true) return
         val wasListening = serviceRunning.value
         if (wasListening) FinderService.stop(getApplication())
-        _enrollment.update { it.copy(recording = true, message = "Listening… say the phrase now") }
+        _enrollment.update { it.copy(recording = true, message = prompt) }
         recordJob = viewModelScope.launch {
             val message = try {
                 if (wasListening) delay(MIC_HANDOVER_MS)
@@ -108,34 +171,30 @@ class FinderViewModel(app: Application) : AndroidViewModel(app) {
                         .mapNotNull { segmenter.feed(it) }
                         .first()
                 }
-                val utterance = withContext(Dispatchers.Default) { extractor.extract(pcm) }
-                if (utterance.frames.size < VoiceProfile.MIN_PHRASE_FRAMES) {
-                    "Too short. Say the whole phrase “ஏய் எங்க இருக்க?” in one go."
-                } else {
-                    samples += utterance
-                    "Sample ${samples.size} saved (${utterance.frames.size * 10} ms of speech)"
-                }
+                onCaptured(withContext(Dispatchers.Default) { extractor.extract(pcm) })
             } catch (e: TimeoutCancellationException) {
                 "Didn't hear a clear phrase. Speak a little louder, closer to the phone."
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Enrollment recording failed", e)
+                Log.e(TAG, "Recording failed", e)
                 "Recording failed: ${e.message}"
             } finally {
                 _recordLevel.value = 0f
             }
             _enrollment.update { it.copy(samples = samples.size, recording = false, message = message) }
+            if (wasListening && resumeAfter) FinderService.start(getApplication())
         }
     }
 
     private fun initialEnrollment(): EnrollmentState {
         val hadProfile = store.exists()
-        val usable = store.load() != null
+        val profile = store.load()
         return EnrollmentState(
-            profileSaved = usable,
-            message = if (hadProfile && !usable) {
-                "Update: Voice Finder now checks all three words. Please record your phrase again."
+            profileSaved = profile != null,
+            wrongPhrases = profile?.negatives?.size ?: 0,
+            message = if (hadProfile && profile == null) {
+                "Update: Voice Finder now tells words apart more strictly. Please record your phrase again."
             } else {
                 null
             },

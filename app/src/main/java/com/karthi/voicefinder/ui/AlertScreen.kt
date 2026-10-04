@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,7 +37,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun AlertScreen(repeatCount: Int, title: String, message: String, themeIndex: Int, onStop: () -> Unit) {
+fun AlertScreen(
+    repeatCount: Int,
+    title: String,
+    message: String,
+    themeIndex: Int,
+    onStop: () -> Unit,
+    onWrongPhrase: (() -> Unit)? = null,
+) {
     val theme = BannerThemes.get(themeIndex)
     val pulse by rememberInfiniteTransition(label = "alert").animateFloat(
         initialValue = 1f,
@@ -79,6 +88,14 @@ fun AlertScreen(repeatCount: Int, title: String, message: String, themeIndex: In
                 "Stops by itself after $repeatCount ${if (repeatCount == 1) "play" else "plays"}",
                 color = Color.White.copy(alpha = 0.75f),
             )
+            if (onWrongPhrase != null) {
+                Spacer(Modifier.height(24.dp))
+                OutlinedButton(
+                    onClick = onWrongPhrase,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.7f)),
+                ) { Text("Wrong phrase: don't trigger on this again") }
+            }
         }
     }
 }

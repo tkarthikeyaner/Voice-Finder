@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.MainThread
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -27,6 +28,7 @@ import com.karthi.voicefinder.voice.FeatureExtractor
 import com.karthi.voicefinder.voice.MatchResult
 import com.karthi.voicefinder.voice.SilenceWatchdog
 import com.karthi.voicefinder.voice.SpeechSegmenter
+import com.karthi.voicefinder.voice.Utterance
 import com.karthi.voicefinder.voice.VoiceProfileStore
 import com.karthi.voicefinder.voice.WakePhraseMatcher
 import kotlinx.coroutines.CancellationException
@@ -59,6 +61,9 @@ class FinderService : Service() {
 
     /** Ignore anything heard until this time (our own playback, or just after a trigger). */
     @Volatile private var mutedUntil = 0L
+
+    /** What was heard on the last real trigger, so the user can mark it as a wrong phrase. */
+    @Volatile private var lastTrigger: Utterance? = null
 
     /** Set once a voice profile is loaded; null means the service isn't set up to listen. */
     private var matcher: WakePhraseMatcher? = null
@@ -105,8 +110,15 @@ class FinderService : Service() {
                 return if (matcher == null) START_NOT_STICKY else START_STICKY
             }
             ACTION_TEST_TRIGGER -> if (matcher != null) {
+                lastTrigger = null
                 onWakePhrase()
                 return START_STICKY
+            }
+            ACTION_FALSE_ALARM -> {
+                alertPlayer.stop()
+                learnWrongPhrase()
+                if (matcher == null) stopSelf()
+                return if (matcher == null) START_NOT_STICKY else START_STICKY
             }
             ACTION_RESUME -> {
                 // A user tap lets Android give us real mic audio again, but only for a capture opened from
@@ -221,10 +233,12 @@ class FinderService : Service() {
                         return@collect
                     }
                     val segment = segmenter.feed(frame) ?: return@collect
-                    val result = matcher.evaluate(extractor.extract(segment), settings.sensitivity)
+                    val utterance = extractor.extract(segment)
+                    val result = matcher.evaluate(utterance, settings.sensitivity)
                     _lastMatch.value = result
                     _micBlocked.value = false
                     if (result.accepted) {
+                        lastTrigger = utterance
                         mutedUntil = Long.MAX_VALUE
                         withContext(Dispatchers.Main) { onWakePhrase() }
                     }
@@ -252,12 +266,33 @@ class FinderService : Service() {
         Log.i(TAG, "Wake phrase recognised")
         mutedUntil = Long.MAX_VALUE
         _alerting.value = true
+        _canMarkWrong.value = lastTrigger != null
         // Full-screen STOP screen over the lock screen (heads-up with a STOP button when unlocked).
-        notificationManager.notify(Notifications.FOUND_ID, Notifications.found(this))
+        notificationManager.notify(Notifications.FOUND_ID, Notifications.found(this, allowWrongPhrase = lastTrigger != null))
         alertPlayer.play(settings.repeatCount) {
             _alerting.value = false
             notificationManager.cancel(Notifications.FOUND_ID)
             mutedUntil = SystemClock.elapsedRealtime() + COOLDOWN_MS
+        }
+    }
+
+    /** Saves the last trigger as "should not trigger" so the same sentence is rejected from now on. */
+    @MainThread
+    private fun learnWrongPhrase() {
+        val heard = lastTrigger ?: return
+        lastTrigger = null
+        _canMarkWrong.value = false
+        val store = VoiceProfileStore(this)
+        val updated = store.load()?.withNegative(heard.frames) ?: return
+        try {
+            store.save(updated)
+            matcher = WakePhraseMatcher(updated)
+            listenJob?.cancel()
+            listenJob = null
+            startListening()
+            Toast.makeText(this, "Got it. That phrase won't trigger again.", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Could not save the wrong phrase", e)
         }
     }
 
@@ -288,6 +323,7 @@ class FinderService : Service() {
         private const val ACTION_RESUME = "com.karthi.voicefinder.RESUME"
         private const val ACTION_STOP_ALERT = "com.karthi.voicefinder.STOP_ALERT"
         private const val ACTION_TEST_TRIGGER = "com.karthi.voicefinder.TEST_TRIGGER"
+        private const val ACTION_FALSE_ALARM = "com.karthi.voicefinder.FALSE_ALARM"
         private const val WAKE_LOCK_TIMEOUT_MS = 15 * 60 * 1000L
         private const val WAKE_LOCK_REFRESH_MS = 10 * 60 * 1000L
         private const val LEVEL_INTERVAL_MS = 100L
@@ -314,6 +350,10 @@ class FinderService : Service() {
         /** Why listening is paused to save battery, or null while it listens. */
         val pauseReason: StateFlow<PauseReason?> = _pauseReason.asStateFlow()
 
+        private val _canMarkWrong = MutableStateFlow(false)
+        /** True while the current alert came from real speech that can be marked as a wrong phrase. */
+        val canMarkWrong: StateFlow<Boolean> = _canMarkWrong.asStateFlow()
+
         private val _alerting = MutableStateFlow(false)
         /** True while the "found" sound is playing. */
         val alerting: StateFlow<Boolean> = _alerting.asStateFlow()
@@ -322,6 +362,7 @@ class FinderService : Service() {
         fun stopIntent(context: Context) = Intent(context, FinderService::class.java).setAction(ACTION_STOP)
         fun resumeIntent(context: Context) = Intent(context, FinderService::class.java).setAction(ACTION_RESUME)
         fun stopAlertIntent(context: Context) = Intent(context, FinderService::class.java).setAction(ACTION_STOP_ALERT)
+        fun falseAlarmIntent(context: Context) = Intent(context, FinderService::class.java).setAction(ACTION_FALSE_ALARM)
         fun testTriggerIntent(context: Context) = Intent(context, FinderService::class.java).setAction(ACTION_TEST_TRIGGER)
 
         fun start(context: Context) = ContextCompat.startForegroundService(context, startIntent(context))

@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BatterySaver
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -125,6 +126,8 @@ class FinderActions(
     val grantPermissions: () -> Unit,
     val recordSample: () -> Unit,
     val saveProfile: () -> Unit,
+    val recordWrongPhrase: () -> Unit,
+    val clearWrongPhrases: () -> Unit,
     val resetProfile: () -> Unit,
     val setSensitivity: (Float) -> Unit,
     val setListening: (Boolean) -> Unit,
@@ -338,6 +341,24 @@ private fun VoiceCard(phrase: String, state: FinderUiState, actions: FinderActio
             TextButton(onClick = actions.resetProfile) { Text("Reset") }
         }
         if (e.profileSaved) Text("✓ Voice profile saved", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+        if (e.profileSaved) {
+            HorizontalDivider()
+            Text("Phrases that should NOT trigger", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                "If another sentence sets it off (like “ஏய் என்ன பண்ற”), record it here, or tap “Wrong phrase” on the " +
+                    "alert screen. It will be rejected from then on. Saved: ${e.wrongPhrases}/${VoiceProfile.MAX_NEGATIVES}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = actions.recordWrongPhrase, enabled = !e.recording) {
+                    Icon(Icons.Rounded.Block, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Record a wrong phrase")
+                }
+                if (e.wrongPhrases > 0) TextButton(onClick = actions.clearWrongPhrases) { Text("Clear") }
+            }
+        }
         e.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
@@ -540,6 +561,7 @@ private fun DetectionCard(state: FinderUiState, actions: FinderActions) {
                 when {
                     match.accepted -> "✓ Matched: this would trigger"
                     !match.complete -> "✗ Incomplete: say all three words “ஏய் எங்க இருக்க”"
+                    match.markedWrong -> "✗ Sounds like a phrase you marked as wrong"
                     else -> "✗ Not a match. Too different? Move the slider right."
                 },
                 color = if (match.accepted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,

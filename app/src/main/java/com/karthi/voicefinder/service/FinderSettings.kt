@@ -14,7 +14,7 @@ class FinderSettings(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_ENABLED, value).apply()
 
     var sensitivity: Float
-        get() = prefs.getFloat(KEY_SENSITIVITY, DEFAULT_SENSITIVITY)
+        get() = prefs.getFloat(KEY_SENSITIVITY, DEFAULT_SENSITIVITY).coerceIn(MIN_SENSITIVITY, MAX_SENSITIVITY)
         set(value) = prefs.edit().putFloat(KEY_SENSITIVITY, value.coerceIn(MIN_SENSITIVITY, MAX_SENSITIVITY)).apply()
 
     /** How many times the response plays before stopping by itself. */
@@ -66,8 +66,9 @@ class FinderSettings(context: Context) {
         prefs.unregisterOnSharedPreferenceChangeListener(listener)
 
     companion object {
-        const val MIN_SENSITIVITY = 0.7f
-        const val MAX_SENSITIVITY = 1.5f
+        const val MIN_SENSITIVITY = 0.75f
+        // Above this, other sentences said in the same voice start to fit inside the tolerance.
+        const val MAX_SENSITIVITY = 1.25f
         const val DEFAULT_SENSITIVITY = 1.0f
         const val MIN_REPEAT = 1
         const val MAX_REPEAT = 10
