@@ -9,15 +9,14 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,20 +24,27 @@ import com.karthi.voicefinder.power.Reliability
 import com.karthi.voicefinder.service.FinderService
 import com.karthi.voicefinder.ui.FinderActions
 import com.karthi.voicefinder.ui.FinderScreen
+import com.karthi.voicefinder.ui.FinderUiState
 import com.karthi.voicefinder.ui.FinderViewModel
 import com.karthi.voicefinder.ui.ReliabilityState
+import com.karthi.voicefinder.ui.VoiceFinderTheme
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: FinderViewModel by viewModels()
-    private var reliability by mutableStateOf(ReliabilityState(false, false, false, false))
+    private var reliability by mutableStateOf(ReliabilityState())
 
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         refreshReliability()
     }
 
+    private val soundPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importSound)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val actions = FinderActions(
             grantPermissions = ::requestPermissions,
             recordSample = { if (reliability.micGranted) viewModel.recordSample() else requestPermissions() },
@@ -46,29 +52,49 @@ class MainActivity : ComponentActivity() {
             resetProfile = viewModel::resetEnrollment,
             setSensitivity = viewModel::setSensitivity,
             setListening = viewModel::setListening,
-            testResponse = viewModel::testResponse,
+            resumeListening = viewModel::resumeListening,
+            simulateTrigger = viewModel::simulateTrigger,
+            chooseSound = ::chooseSound,
+            resetSound = viewModel::resetSound,
+            togglePreview = viewModel::togglePreview,
+            changeRepeat = viewModel::changeRepeat,
             openBatterySettings = { launch(Reliability.batteryExemptionIntent(this)) },
             openDndSettings = { launch(Reliability.dndAccessIntent()) },
+            openFullScreenSettings = { launch(Reliability.fullScreenIntentSettings(this)) },
             openAppSettings = { launch(Reliability.appDetailsIntent(this)) },
         )
         setContent {
-            val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
-            MaterialTheme(colorScheme = colors) {
-                Surface {
-                    val enrollment by viewModel.enrollment.collectAsStateWithLifecycle()
-                    val listening by viewModel.serviceRunning.collectAsStateWithLifecycle()
-                    val sensitivity by viewModel.sensitivity.collectAsStateWithLifecycle()
-                    val lastMatch by viewModel.lastMatch.collectAsStateWithLifecycle()
-                    FinderScreen(
-                        phrase = getString(R.string.wake_phrase),
+            VoiceFinderTheme {
+                val snackbar = remember { SnackbarHostState() }
+                LaunchedEffect(Unit) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
+                val enrollment by viewModel.enrollment.collectAsStateWithLifecycle()
+                val listening by viewModel.serviceRunning.collectAsStateWithLifecycle()
+                val micBlocked by viewModel.micBlocked.collectAsStateWithLifecycle()
+                val micLevel by viewModel.micLevel.collectAsStateWithLifecycle()
+                val recordLevel by viewModel.recordLevel.collectAsStateWithLifecycle()
+                val sensitivity by viewModel.sensitivity.collectAsStateWithLifecycle()
+                val lastMatch by viewModel.lastMatch.collectAsStateWithLifecycle()
+                val soundName by viewModel.soundName.collectAsStateWithLifecycle()
+                val repeatCount by viewModel.repeatCount.collectAsStateWithLifecycle()
+                val previewing by viewModel.previewing.collectAsStateWithLifecycle()
+                FinderScreen(
+                    phrase = getString(R.string.wake_phrase),
+                    state = FinderUiState(
                         enrollment = enrollment,
                         reliability = reliability,
                         listening = listening,
+                        micBlocked = micBlocked,
+                        micLevel = micLevel,
+                        recordLevel = recordLevel,
                         sensitivity = sensitivity,
                         lastMatch = lastMatch,
-                        actions = actions,
-                    )
-                }
+                        soundName = soundName,
+                        repeatCount = repeatCount,
+                        previewing = previewing,
+                    ),
+                    actions = actions,
+                    snackbar = snackbar,
+                )
             }
         }
     }
@@ -78,7 +104,7 @@ class MainActivity : ComponentActivity() {
         // Settings screens return here, so re-check what the user changed.
         refreshReliability()
         // Opening the app is a user action, so it also restores a microphone Android muted in the background.
-        if (FinderService.micBlocked.value) startForegroundService(FinderService.resumeIntent(this))
+        if (FinderService.micBlocked.value) viewModel.resumeListening()
     }
 
     private fun refreshReliability() {
@@ -87,6 +113,7 @@ class MainActivity : ComponentActivity() {
             notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || granted(Manifest.permission.POST_NOTIFICATIONS),
             batteryUnrestricted = Reliability.isBatteryUnrestricted(this),
             dndAccess = Reliability.hasDndAccess(this),
+            fullScreenAllowed = Reliability.canShowFullScreen(this),
         )
     }
 
@@ -98,6 +125,14 @@ class MainActivity : ComponentActivity() {
         permissionLauncher.launch(permissions.toTypedArray())
     }
 
+    private fun chooseSound() {
+        try {
+            soundPicker.launch(arrayOf("audio/*"))
+        } catch (e: ActivityNotFoundException) {
+            Log.w(TAG, "No file picker available", e)
+        }
+    }
+
     private fun granted(permission: String) =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
@@ -106,8 +141,12 @@ class MainActivity : ComponentActivity() {
             startActivity(intent)
         } catch (e: ActivityNotFoundException) {
             // Some OEM builds strip these settings screens; fall back to the app details page.
-            Log.w("MainActivity", "Settings screen unavailable: ${intent.action}", e)
+            Log.w(TAG, "Settings screen unavailable: ${intent.action}", e)
             startActivity(Reliability.appDetailsIntent(this))
         }
+    }
+
+    private companion object {
+        const val TAG = "MainActivity"
     }
 }

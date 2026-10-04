@@ -11,4 +11,8 @@
     <string name="notif_resume_text">Tap to resume listening after restart</string>
     <string name="notif_blocked_title">Voice Finder can\'t hear you</string>
     <string name="notif_blocked_text">Android muted the microphone after the app was closed. Tap to resume listening. To stop this happening: lock Voice Finder in Recents and set Battery to No restrictions.</string>
+    <string name="channel_found">Phone found alert</string>
+    <string name="notif_found_title">Here I am!</string>
+    <string name="notif_found_text">Found your phone? Tap STOP to silence it.</string>
+    <string name="notif_stop_sound">STOP</string>
 </resources>

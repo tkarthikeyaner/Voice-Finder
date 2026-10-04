@@ -21,16 +21,26 @@ Mic (16 kHz PCM, 10 ms frames)
 
 Battery: the always-on part is just an RMS level per 10 ms frame. MFCC + DTW only run on short segments that look like speech (a few ms of CPU each).
 
+## Features
+
+- Offline, speaker-dependent wake phrase; works with the screen off and locked.
+- When triggered: full volume even on silent/DND, plays the response 1–10 times (default 3), then stops by itself.
+- Full-screen **STOP** screen over the lock screen, plus a STOP action in the notification.
+- Custom response sound: pick any audio file (≤ 20 MB, ≤ 5 min), preview it, or revert to the bundled clip.
+- Material You UI with a live mic level, setup checklist, live match scores and a "Test the alert" button.
+
 ## Folder structure
 
 ```
 Voice-Finder/
 ├── app/src/main/java/com/karthi/voicefinder/
 │   ├── VoiceFinderApp.kt              # Creates notification channels
-│   ├── MainActivity.kt                # Permissions, settings intents, Compose host
+│   ├── MainActivity.kt                # Permissions, settings intents, sound picker, Compose host
+│   ├── AlertActivity.kt               # Full-screen STOP screen shown over the lock screen
 │   ├── audio/
 │   │   ├── MicrophoneSource.kt        # AudioRecord → Flow<ShortArray> (VOICE_RECOGNITION source)
-│   │   └── AlertPlayer.kt             # Silent/DND override, max volume, MediaPlayer, state restore
+│   │   ├── AlertPlayer.kt             # Silent/DND override, max volume, repeat N times, state restore
+│   │   └── ResponseSound.kt           # Bundled clip or user-picked file (validated copy)
 │   ├── voice/                         # Pure Kotlin (JVM unit-tested)
 │   │   ├── Mfcc.kt  Dtw.kt  FeatureExtractor.kt  SpeechSegmenter.kt
 │   │   ├── VoiceProfile.kt            # Enrollment + threshold calibration
@@ -57,6 +67,7 @@ Voice-Finder/
 | `WAKE_LOCK` | Keep the CPU processing audio in Doze |
 | `ACCESS_NOTIFICATION_POLICY` | Leave silent/DND and restore it afterwards (user grants "Do Not Disturb access") |
 | `MODIFY_AUDIO_SETTINGS` | Raise stream volumes |
+| `USE_FULL_SCREEN_INTENT` | STOP screen over the lock screen (user grants it separately on Android 14+) |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | One-tap "unrestricted battery" prompt |
 | `RECEIVE_BOOT_COMPLETED` | Resume after reboot |
 

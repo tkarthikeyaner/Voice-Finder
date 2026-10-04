@@ -1,9 +1,15 @@
-# Voice Finder 1.0.1
+# Voice Finder 1.1.0
 
-Fix: the phrase didn't trigger after the app was closed.
+**New**
+- **STOP button on the lock screen:** when your phrase is heard, a full-screen "Here I am!" screen with a big STOP button appears, even when the phone is locked. The notification has a STOP button too.
+- **Plays 3 times, then stops by itself:** change it from 1 to 10 plays.
+- **Choose your own sound:** pick any MP3 or audio file from your phone, preview it, or go back to the default clip.
+- **Redesigned app:** Material You colours (Pixel and Android 12+), animated mic button, live mic level, setup checklist with progress, live phrase and voice match bars, and a "Test the alert" button.
 
-- **What happened:** after you close the app, Android (Xiaomi/MIUI especially) can keep the mic "on" but feed the app pure silence, so it never heard you even though the mic icon stayed lit.
-- **Now:** the app detects that silence within 3 seconds and shows **"Voice Finder can't hear you"**. One tap restores listening; opening the app does too.
-- **To stop it happening at all:** lock Voice Finder in Recents (open Recents, then long-press the card or pull it down to show the lock), set Battery saver to **No restrictions**, and turn on **Autostart**.
+**Fixed**
+- **Background reliability:** if Android refuses to restart listening in the background (Android 12+ after the system kills the app), you now get a one-tap **Resume** notification instead of it stopping silently. Opening the app also resumes.
+- **Android 15 / Pixel:** the content no longer sits under the status bar.
 
-**Install:** download `VoiceFinder-1.0.1.apk` below and install it over 1.0.0. Your recorded voice profile is kept.
+**After installing:** open the app and finish the **Setup** checklist, especially **STOP button on lock screen** (Android 14+ asks for this separately).
+
+**Install:** download `VoiceFinder-1.1.0.apk` below and install it over the old version. Your voice profile is kept.

@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import com.karthi.voicefinder.AlertActivity
 import com.karthi.voicefinder.MainActivity
 import com.karthi.voicefinder.R
 
@@ -14,8 +15,10 @@ object Notifications {
     const val LISTENING_ID = 1
     const val RESUME_ID = 2
     const val MIC_BLOCKED_ID = 3
+    const val FOUND_ID = 4
     private const val CHANNEL_LISTENING = "listening"
     private const val CHANNEL_ALERTS = "alerts"
+    private const val CHANNEL_FOUND = "found"
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -25,6 +28,13 @@ object Notifications {
                 NotificationChannel(CHANNEL_LISTENING, context.getString(R.string.channel_listening), NotificationManager.IMPORTANCE_LOW)
                     .apply { setShowBadge(false) },
                 NotificationChannel(CHANNEL_ALERTS, context.getString(R.string.channel_alerts), NotificationManager.IMPORTANCE_HIGH),
+                // The app plays its own sound; the channel only carries the STOP screen.
+                NotificationChannel(CHANNEL_FOUND, context.getString(R.string.channel_found), NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(null, null)
+                    enableVibration(false)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                    setBypassDnd(true)
+                },
             ),
         )
     }
@@ -72,6 +82,30 @@ object Notifications {
             .setContentIntent(resume)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
+            .build()
+    }
+
+    /** Shown while the response plays: full-screen STOP screen when locked, heads-up with STOP when in use. */
+    fun found(context: Context): Notification {
+        val stop = PendingIntent.getService(
+            context, 4, FinderService.stopAlertIntent(context), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val alertScreen = PendingIntent.getActivity(
+            context, 5,
+            Intent(context, AlertActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return NotificationCompat.Builder(context, CHANNEL_FOUND)
+            .setSmallIcon(R.drawable.ic_finder)
+            .setContentTitle(context.getString(R.string.notif_found_title))
+            .setContentText(context.getString(R.string.notif_found_text))
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(alertScreen, true)
+            .setContentIntent(alertScreen)
+            .addAction(0, context.getString(R.string.notif_stop_sound), stop)
+            .setOngoing(true)
             .build()
     }
 

@@ -8,16 +8,16 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.util.Log
 import androidx.annotation.MainThread
-import com.karthi.voicefinder.R
 
 /**
- * Plays the bundled response at full volume even when the phone is on silent, vibrate or Do Not Disturb,
- * then puts the user's ringer mode, DND state and volumes back exactly as they were.
+ * Plays the response sound a set number of times. For a real alert it first overrides silent, vibrate and
+ * Do Not Disturb and maxes the volume, then puts ringer mode, DND state and volumes back exactly as they were.
  */
 class AlertPlayer(private val context: Context) {
 
     private val audioManager = context.getSystemService(AudioManager::class.java)
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
+    private val sound = ResponseSound(context)
 
     // USAGE_ALARM is the one stream Android lets through silent mode and default DND rules.
     private val attributes = AudioAttributes.Builder()
@@ -30,31 +30,39 @@ class AlertPlayer(private val context: Context) {
 
     private var player: MediaPlayer? = null
     private var saved: SavedState? = null
+    private var onFinished: (() -> Unit)? = null
 
     val isPlaying: Boolean get() = player != null
 
+    /**
+     * [overrideSilent] = false is for previews: plays at the current alarm volume without touching settings.
+     * [onFinished] runs once, whether playback completes, fails or is stopped.
+     */
     @MainThread
-    fun play(repeat: Int = DEFAULT_REPEAT, onFinished: () -> Unit = {}) {
+    fun play(repeat: Int, overrideSilent: Boolean = true, onFinished: () -> Unit = {}) {
         if (player != null) return
-        saved = captureState()
-        overrideSilentMode()
-        maximiseVolume(AudioManager.STREAM_MUSIC)
-        maximiseVolume(AudioManager.STREAM_ALARM)
+        this.onFinished = onFinished
+        if (overrideSilent) {
+            saved = captureState()
+            overrideSilentMode()
+            maximiseVolume(AudioManager.STREAM_MUSIC)
+            maximiseVolume(AudioManager.STREAM_ALARM)
+        }
         audioManager.requestAudioFocus(focusRequest)
 
-        val mp = MediaPlayer.create(context, R.raw.respond, attributes, audioManager.generateAudioSessionId())
+        val mp = sound.createPlayer(attributes, audioManager.generateAudioSessionId())
         if (mp == null) {
             Log.e(TAG, "Could not load the response audio")
-            finish(onFinished)
+            finish()
             return
         }
-        var remaining = repeat
+        var remaining = repeat.coerceAtLeast(1)
         mp.setOnCompletionListener {
-            if (--remaining > 0) it.start() else finish(onFinished)
+            if (--remaining > 0) it.start() else finish()
         }
         mp.setOnErrorListener { _, what, extra ->
             Log.e(TAG, "Playback error what=$what extra=$extra")
-            finish(onFinished)
+            finish()
             true
         }
         player = mp
@@ -63,10 +71,10 @@ class AlertPlayer(private val context: Context) {
 
     @MainThread
     fun stop() {
-        if (player != null) finish {}
+        if (player != null) finish()
     }
 
-    private fun finish(onFinished: () -> Unit) {
+    private fun finish() {
         player?.run {
             runCatching { if (isPlaying) stop() }
             release()
@@ -75,7 +83,9 @@ class AlertPlayer(private val context: Context) {
         audioManager.abandonAudioFocusRequest(focusRequest)
         saved?.let(::restoreState)
         saved = null
-        onFinished()
+        val callback = onFinished
+        onFinished = null
+        callback?.invoke()
     }
 
     private fun overrideSilentMode() {
@@ -126,6 +136,5 @@ class AlertPlayer(private val context: Context) {
 
     private companion object {
         const val TAG = "AlertPlayer"
-        const val DEFAULT_REPEAT = 3
     }
 }
