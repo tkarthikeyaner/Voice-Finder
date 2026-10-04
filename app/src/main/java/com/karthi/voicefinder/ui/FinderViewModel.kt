@@ -15,7 +15,6 @@ import com.karthi.voicefinder.voice.AudioLevel
 import com.karthi.voicefinder.voice.FeatureExtractor
 import com.karthi.voicefinder.voice.SpeechSegmenter
 import com.karthi.voicefinder.voice.Utterance
-import com.karthi.voicefinder.voice.VoiceAudio
 import com.karthi.voicefinder.voice.VoiceProfile
 import com.karthi.voicefinder.voice.VoiceProfileStore
 import kotlinx.coroutines.CancellationException
@@ -54,7 +53,7 @@ class FinderViewModel(app: Application) : AndroidViewModel(app) {
     private val samples = mutableListOf<Utterance>()
     private var recordJob: Job? = null
 
-    private val _enrollment = MutableStateFlow(EnrollmentState(profileSaved = store.exists()))
+    private val _enrollment = MutableStateFlow(initialEnrollment())
     val enrollment: StateFlow<EnrollmentState> = _enrollment.asStateFlow()
 
     private val _recordLevel = MutableStateFlow(0f)
@@ -99,8 +98,13 @@ class FinderViewModel(app: Application) : AndroidViewModel(app) {
                         .mapNotNull { segmenter.feed(it) }
                         .first()
                 }
-                samples += withContext(Dispatchers.Default) { extractor.extract(pcm) }
-                "Sample ${samples.size} saved (${pcm.size * 1000 / VoiceAudio.SAMPLE_RATE} ms)"
+                val utterance = withContext(Dispatchers.Default) { extractor.extract(pcm) }
+                if (utterance.frames.size < VoiceProfile.MIN_PHRASE_FRAMES) {
+                    "Too short. Say the whole phrase “ஏய் எங்க இருக்க?” in one go."
+                } else {
+                    samples += utterance
+                    "Sample ${samples.size} saved (${utterance.frames.size * 10} ms of speech)"
+                }
             } catch (e: TimeoutCancellationException) {
                 "Didn't hear a clear phrase. Speak a little louder, closer to the phone."
             } catch (e: CancellationException) {
@@ -113,6 +117,19 @@ class FinderViewModel(app: Application) : AndroidViewModel(app) {
             }
             _enrollment.update { it.copy(samples = samples.size, recording = false, message = message) }
         }
+    }
+
+    private fun initialEnrollment(): EnrollmentState {
+        val hadProfile = store.exists()
+        val usable = store.load() != null
+        return EnrollmentState(
+            profileSaved = usable,
+            message = if (hadProfile && !usable) {
+                "Update: Voice Finder now checks all three words. Please record your phrase again."
+            } else {
+                null
+            },
+        )
     }
 
     fun saveProfile() {

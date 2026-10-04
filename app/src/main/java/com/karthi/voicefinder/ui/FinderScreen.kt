@@ -283,7 +283,10 @@ private fun SetupChecklist(state: FinderUiState, actions: FinderActions) {
 private fun VoiceCard(phrase: String, state: FinderUiState, actions: FinderActions) {
     val e = state.enrollment
     SectionCard(Icons.Rounded.RecordVoiceOver, "Your voice", "${e.samples}/${VoiceProfile.MAX_SAMPLES}") {
-        Text("Say “$phrase” ${VoiceProfile.MIN_SAMPLES}–${VoiceProfile.MAX_SAMPLES} times in a quiet room, at your normal volume.")
+        Text(
+            "Say the whole phrase “$phrase” ${VoiceProfile.MIN_SAMPLES}–${VoiceProfile.MAX_SAMPLES} times in a quiet room, " +
+                "at your normal volume and speed. Only the full phrase will trigger it.",
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             repeat(VoiceProfile.MAX_SAMPLES) { i ->
                 val color by animateColorAsState(
@@ -396,7 +399,11 @@ private fun DetectionCard(state: FinderUiState, actions: FinderActions) {
             ScoreBar("Phrase", match.phraseScore)
             ScoreBar("Voice", match.voiceScore)
             Text(
-                if (match.accepted) "✓ Matched: this would trigger" else "✗ Not a match. Too different? Move the slider right.",
+                when {
+                    match.accepted -> "✓ Matched: this would trigger"
+                    !match.complete -> "✗ Incomplete: say all three words “ஏய் எங்க இருக்க”"
+                    else -> "✗ Not a match. Too different? Move the slider right."
+                },
                 color = if (match.accepted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
             )

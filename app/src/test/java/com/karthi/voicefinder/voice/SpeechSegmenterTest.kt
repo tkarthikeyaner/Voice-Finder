@@ -23,6 +23,16 @@ class SpeechSegmenterTest {
     }
 
     @Test
+    fun pauseBetweenWordsKeepsPhraseInOneSegment() {
+        val ey = SyntheticSpeech.speak(SyntheticSpeech.PHRASE.take(1), SyntheticSpeech.OWNER)
+        val rest = SyntheticSpeech.speak(SyntheticSpeech.PHRASE.drop(1), SyntheticSpeech.OWNER, seed = 3)
+        val found = segments(
+            SyntheticSpeech.frames(SyntheticSpeech.silence(800), ey, SyntheticSpeech.silence(450, seed = 4), rest, SyntheticSpeech.silence(1000, seed = 5)),
+        )
+        assertEquals(1, found.size)
+    }
+
+    @Test
     fun shortClickIsIgnored() {
         val click = SyntheticSpeech.speak(SyntheticSpeech.PHRASE.take(1), SyntheticSpeech.OWNER, tempo = 2.0)
         assertTrue(segments(SyntheticSpeech.frames(SyntheticSpeech.silence(800), click, SyntheticSpeech.silence(800))).isEmpty())

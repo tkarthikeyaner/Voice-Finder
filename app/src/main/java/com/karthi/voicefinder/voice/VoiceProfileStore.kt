@@ -17,10 +17,17 @@ class VoiceProfileStore(context: Context) {
         if (!file.isFile) return null
         return try {
             val json = JSONObject(file.readText())
+            if (json.optInt("version") != VERSION) {
+                // Older profiles lack the start/end calibration that stops partial phrases triggering.
+                Log.i(TAG, "Voice profile is from an older version; re-enrollment needed")
+                file.delete()
+                return null
+            }
             VoiceProfile(
                 templates = json.getJSONArray("templates").let { arr -> List(arr.length()) { arr.getJSONArray(it).toMatrix() } },
                 voiceprintCentroid = json.getJSONArray("centroid").toVector(),
                 phraseThreshold = json.getDouble("phraseThreshold").toFloat(),
+                partThreshold = json.getDouble("partThreshold").toFloat(),
                 voiceThreshold = json.getDouble("voiceThreshold").toFloat(),
             )
         } catch (e: Exception) {
@@ -34,10 +41,11 @@ class VoiceProfileStore(context: Context) {
     @Throws(IOException::class)
     fun save(profile: VoiceProfile) {
         val json = JSONObject()
-            .put("version", 1)
+            .put("version", VERSION)
             .put("templates", JSONArray().apply { profile.templates.forEach { put(it.toJson()) } })
             .put("centroid", profile.voiceprintCentroid.toJson())
             .put("phraseThreshold", profile.phraseThreshold.toDouble())
+            .put("partThreshold", profile.partThreshold.toDouble())
             .put("voiceThreshold", profile.voiceThreshold.toDouble())
         val tmp = File(file.parentFile, "${file.name}.tmp")
         tmp.writeText(json.toString())
@@ -55,5 +63,6 @@ class VoiceProfileStore(context: Context) {
 
     private companion object {
         const val TAG = "VoiceProfileStore"
+        const val VERSION = 2
     }
 }

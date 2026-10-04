@@ -15,8 +15,8 @@ import kotlin.math.sqrt
  */
 class Mfcc(
     private val sampleRate: Int = VoiceAudio.SAMPLE_RATE,
-    private val frameSize: Int = 400,
-    private val hopSize: Int = 160,
+    val frameSize: Int = 400,
+    val hopSize: Int = 160,
     private val fftSize: Int = 512,
     private val melBands: Int = 26,
     val numCoeffs: Int = 12,

@@ -16,7 +16,8 @@ class SpeechSegmenter(
     private val endMarginDb: Float = 6f,
     private val absoluteMinDb: Float = -55f,
     private val startFrames: Int = 3,
-    private val hangoverFrames: Int = 40,
+    // 0.6 s: long enough to bridge the pause between "ஏய்" and "எங்க இருக்க", so the phrase stays one segment.
+    private val hangoverFrames: Int = 60,
     private val preRollFrames: Int = 20,
     private val minSpeechFrames: Int = 40,
     private val maxSpeechFrames: Int = 350,
