@@ -62,7 +62,7 @@ Voice-Finder/
 
 ## Setup & first run
 
-1. Build: `./gradlew assembleDebug` (JDK 17, Android SDK 35), or download the APK from the **Voice Finder APK** GitHub Actions run (every push builds it; tags `v*` publish a GitHub Release).
+1. Build: `./gradlew assembleDebug` (JDK 17, Android SDK 35), or download the APK from the **Voice Finder APK** GitHub Actions run (every push builds it; run it manually with a `release_tag` to publish a GitHub Release).
 2. Open the app → **Grant permissions**.
 3. **Enroll**: in a quiet room, tap **Record sample** and say *ஏய் எங்க இருக்க?* naturally. Repeat 4–5 times (min 3), then **Save profile**.
 4. Turn on **Listen in background**.

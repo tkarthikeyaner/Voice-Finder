@@ -5,6 +5,11 @@ on:
     branches: ['**']
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish a GitHub Release with this tag (e.g. v1.0.0); leave empty to only build'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -46,9 +51,12 @@ jobs:
           path: out/*.apk
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          name: Voice Finder ${{ github.ref_name }}
+          # On manual runs the action creates the tag at the built commit.
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Voice Finder ${{ inputs.release_tag || github.ref_name }}
           files: out/VoiceFinder-${{ env.VERSION }}.apk
           body_path: CHANGELOG.md
