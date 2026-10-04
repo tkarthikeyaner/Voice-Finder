@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Voice Finder</string>
+    <string name="wake_phrase">ஏய் எங்க இருக்க?</string>
+    <string name="channel_listening">Listening service</string>
+    <string name="channel_alerts">Alerts</string>
+    <string name="notif_listening_title">Listening for your voice</string>
+    <string name="notif_listening_text">Say \"ஏய் எங்க இருக்க?\" to find this phone</string>
+    <string name="notif_stop">Stop</string>
+    <string name="notif_resume_title">Voice Finder is paused</string>
+    <string name="notif_resume_text">Tap to resume listening after restart</string>
+</resources>
