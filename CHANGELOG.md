@@ -1,9 +1,9 @@
-# Voice Finder 1.0.0
+# Voice Finder 1.0.1
 
-First release.
+Fix: the phrase didn't trigger after the app was closed.
 
-- Say **"ஏய் எங்க இருக்க?"** in your own voice and the phone answers at full volume, even on silent, vibrate or Do Not Disturb.
-- Works fully offline: you enroll the phrase 3–6 times; nothing leaves the phone.
-- Listens in the background with the screen locked, and restores your ringer mode and volumes after playing.
+- **What happened:** after you close the app, Android (Xiaomi/MIUI especially) can keep the mic "on" but feed the app pure silence, so it never heard you even though the mic icon stayed lit.
+- **Now:** the app detects that silence within 3 seconds and shows **"Voice Finder can't hear you"**. One tap restores listening; opening the app does too.
+- **To stop it happening at all:** lock Voice Finder in Recents (open Recents, then long-press the card or pull it down to show the lock), set Battery saver to **No restrictions**, and turn on **Autostart**.
 
-**Install:** download `VoiceFinder-1.0.0.apk` below on your phone, allow "Install unknown apps" for your browser, open it, then follow the in-app steps (permissions → record samples → turn on listening → fix battery and Do Not Disturb settings).
+**Install:** download `VoiceFinder-1.0.1.apk` below and install it over 1.0.0. Your recorded voice profile is kept.

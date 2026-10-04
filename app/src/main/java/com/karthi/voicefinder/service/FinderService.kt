@@ -1,6 +1,7 @@
 package com.karthi.voicefinder.service
 
 import android.Manifest
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -16,6 +17,7 @@ import com.karthi.voicefinder.audio.AlertPlayer
 import com.karthi.voicefinder.audio.MicrophoneSource
 import com.karthi.voicefinder.voice.FeatureExtractor
 import com.karthi.voicefinder.voice.MatchResult
+import com.karthi.voicefinder.voice.SilenceWatchdog
 import com.karthi.voicefinder.voice.SpeechSegmenter
 import com.karthi.voicefinder.voice.VoiceProfileStore
 import com.karthi.voicefinder.voice.WakePhraseMatcher
@@ -64,6 +66,14 @@ class FinderService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_RESUME) {
+            // The user tapped the "can't hear" notification: that tap lets Android give us real mic
+            // audio again, but only for a capture opened from now on, so drop the silenced one.
+            listenJob?.cancel()
+            listenJob = null
+            getSystemService(NotificationManager::class.java).cancel(Notifications.MIC_BLOCKED_ID)
+            _micBlocked.value = false
+        }
         if (!goForeground()) return START_NOT_STICKY
 
         val profile = VoiceProfileStore(this).load()
@@ -104,6 +114,7 @@ class FinderService : Service() {
     private suspend fun listenLoop(matcher: WakePhraseMatcher) {
         val segmenter = SpeechSegmenter()
         val extractor = FeatureExtractor()
+        val watchdog = SilenceWatchdog()
         var backoffMs = INITIAL_BACKOFF_MS
         while (scope.isActive) {
             try {
@@ -115,6 +126,7 @@ class FinderService : Service() {
                         refreshWakeLock()
                         lastRefresh = now
                     }
+                    if (watchdog.feed(frame)) onMicSilenced()
                     if (now < mutedUntil) {
                         segmenter.reset()
                         return@collect
@@ -139,6 +151,12 @@ class FinderService : Service() {
         }
     }
 
+    private fun onMicSilenced() {
+        Log.w(TAG, "Android is muting this app's microphone in the background")
+        _micBlocked.value = true
+        getSystemService(NotificationManager::class.java).notify(Notifications.MIC_BLOCKED_ID, Notifications.micBlocked(this))
+    }
+
     private fun onWakePhrase() {
         Log.i(TAG, "Wake phrase recognised")
         alertPlayer.play {
@@ -153,6 +171,7 @@ class FinderService : Service() {
 
     override fun onDestroy() {
         _running.value = false
+        _micBlocked.value = false
         scope.cancel()
         alertPlayer.stop()
         if (wakeLock.isHeld) wakeLock.release()
@@ -164,6 +183,7 @@ class FinderService : Service() {
     companion object {
         private const val TAG = "FinderService"
         private const val ACTION_STOP = "com.karthi.voicefinder.STOP"
+        private const val ACTION_RESUME = "com.karthi.voicefinder.RESUME"
         private const val WAKE_LOCK_TIMEOUT_MS = 15 * 60 * 1000L
         private const val WAKE_LOCK_REFRESH_MS = 10 * 60 * 1000L
         private const val COOLDOWN_MS = 2_000L
@@ -176,6 +196,12 @@ class FinderService : Service() {
         private val _lastMatch = MutableStateFlow<MatchResult?>(null)
         /** Scores of the last speech segment heard; shown in the UI to help tune sensitivity. */
         val lastMatch: StateFlow<MatchResult?> = _lastMatch.asStateFlow()
+
+        private val _micBlocked = MutableStateFlow(false)
+        /** True while Android is feeding this app silence instead of real microphone audio. */
+        val micBlocked: StateFlow<Boolean> = _micBlocked.asStateFlow()
+
+        fun resumeIntent(context: Context) = Intent(context, FinderService::class.java).setAction(ACTION_RESUME)
 
         fun startIntent(context: Context) = Intent(context, FinderService::class.java)
         fun stopIntent(context: Context) = Intent(context, FinderService::class.java).setAction(ACTION_STOP)

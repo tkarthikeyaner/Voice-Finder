@@ -13,6 +13,7 @@ import com.karthi.voicefinder.R
 object Notifications {
     const val LISTENING_ID = 1
     const val RESUME_ID = 2
+    const val MIC_BLOCKED_ID = 3
     private const val CHANNEL_LISTENING = "listening"
     private const val CHANNEL_ALERTS = "alerts"
 
@@ -54,6 +55,22 @@ object Notifications {
             .setContentTitle(context.getString(R.string.notif_resume_title))
             .setContentText(context.getString(R.string.notif_resume_text))
             .setContentIntent(start)
+            .setAutoCancel(true)
+            .build()
+    }
+
+    /** Android is muting the mic in the background; one tap is the user action it needs to restore it. */
+    fun micBlocked(context: Context): Notification {
+        val resume = PendingIntent.getForegroundService(
+            context, 3, FinderService.resumeIntent(context), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return NotificationCompat.Builder(context, CHANNEL_ALERTS)
+            .setSmallIcon(R.drawable.ic_finder)
+            .setContentTitle(context.getString(R.string.notif_blocked_title))
+            .setContentText(context.getString(R.string.notif_blocked_text))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(context.getString(R.string.notif_blocked_text)))
+            .setContentIntent(resume)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
     }

@@ -79,6 +79,14 @@ Voice-Finder/
 - **Reboot**: on Android 8–10 listening restarts automatically. On Android 11+ a background service can't get mic access, so a "Tap to resume" notification appears — one tap restores it.
 - **No self-trigger**: the mic is ignored while the response plays and for 2 s after.
 
+## Why not exactly like "OK Google"?
+
+"OK Google" runs on a dedicated low-power audio chip (hotword DSP) that Android opens only to the phone's built-in assistant. Ordinary apps can't use that chip or register their own phrase on it. So Voice Finder keeps the normal microphone open in a foreground service, which is why Android shows the mic indicator the whole time. That indicator is a privacy rule no app can hide. The app itself still only *acts* on your phrase in your voice.
+
+## Troubleshooting: works only while the app is open
+
+If you close the app and Android (often Xiaomi/MIUI) mutes the mic, the app detects the silence within 3 s and posts **"Voice Finder can't hear you"**. One tap (or opening the app) restores listening. To prevent it: lock the app in Recents, set Battery to *No restrictions*, and turn on Autostart.
+
 ## Limitations (be honest with yourself)
 
 - The voice check is a lightweight voiceprint, not bank-grade biometrics: a recording of you saying the phrase would trigger it. That's fine for finding a phone; don't reuse it for authentication.

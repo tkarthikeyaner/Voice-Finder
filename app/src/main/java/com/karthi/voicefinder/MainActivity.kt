@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.karthi.voicefinder.power.Reliability
+import com.karthi.voicefinder.service.FinderService
 import com.karthi.voicefinder.ui.FinderActions
 import com.karthi.voicefinder.ui.FinderScreen
 import com.karthi.voicefinder.ui.FinderViewModel
@@ -76,6 +77,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Settings screens return here, so re-check what the user changed.
         refreshReliability()
+        // Opening the app is a user action, so it also restores a microphone Android muted in the background.
+        if (FinderService.micBlocked.value) startForegroundService(FinderService.resumeIntent(this))
     }
 
     private fun refreshReliability() {
